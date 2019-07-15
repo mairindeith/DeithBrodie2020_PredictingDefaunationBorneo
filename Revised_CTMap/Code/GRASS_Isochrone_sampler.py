@@ -18,11 +18,8 @@ from osgeo import gdal, ogr
 from osgeo import gdal_array
 from osgeo import gdalnumeric
 import struct
-import sys, os
-import errno
-import numpy as np
 import math
-import sys, os
+import os, sys
 import errno
 import numpy as np
 import shutil
@@ -46,6 +43,7 @@ resist_infile = os.path.join(infiles,'ResistanceMap','Resistance_hpk_08.Jul.2019
 #    Change the "SUBFOLDER" to a different value in each instance if you want to
 #    run this code in multiple instances
 node_path = os.path.join(infiles,'SourceSinks',str(date+"_Nodes"))
+
 percent_sinks_included = 0.01 # Sample 1% of sinks
 
 # Mean/average one-way travel time in a hunting trip (via Levi et al.)
@@ -55,6 +53,11 @@ sigma = mean_hunt_travel_h/((math.pi/2)**0.5)
 
 global node_count
 global node_total
+
+# Start and end points (for when the code fails and needs to restart at an intermediate level)
+# Set to "False" to ignore this
+start_density = 68.61
+end_density = np.inf
 
 #------------------------------------------------------------------------
 #               Define classes
@@ -144,10 +147,13 @@ def isochronesToSinks(coordinate_array, multiple, multiple_number=0, file_path=n
     outpath_tsv=file_path+"/NodesTSV/"
     outpath_txt=file_path+"/NodesTXT/"
     
-    source_id = coordinate_array[:,0]
+    source_id = float(np.unique(coordinate_array[:,0]))
+    print(source_id)
+
     # source_id = coordinate_array[0][2]
     # sources_XY = XYtoPixels(coordinate_array)
-    sources_XY = np.column_stack([coordinate_array[:,1], coordinate_array[:,2]])
+    sources_XY=XYtoPixels(coordinate_array, convert=False)
+    # sources_XY = np.column_stack([coordinate_array[:,1], coordinate_array[:,2]])
     
     # Starting node positions for the TSV node-to-node file
     source_position = 0
@@ -161,11 +167,11 @@ def isochronesToSinks(coordinate_array, multiple, multiple_number=0, file_path=n
     grass.run_command('r.cost', input='resist_input', output='temp_cost', start_coordinates=coordinates, flags='', overwrite=True, max_cost=(mean_hunt_travel_h*2))# , memory=50, null_cost=100)
     cost_surface=grass.read_command('r.out.xyz', input='temp_cost')
     cost_surface_array=(np.array([[float(j) for j in i.split('|')] for i in cost_surface.splitlines()]))
-    cost_surface_array[:,2]=np.absolute(cost_surface_array[:,2])
     if cost_surface_array.shape[0]<10:
         print("Empty cost array (<10 sink nodes), skipping")
         node_count+=1
         return
+    cost_surface_array[:,2]=np.absolute(cost_surface_array[:,2])
     cost_surface_sort=cost_surface_array[cost_surface_array[:,2].argsort()]
     if multiple==False:
         filename="nodes_"+str(source_id)+"_0"
@@ -181,11 +187,11 @@ def isochronesToSinks(coordinate_array, multiple, multiple_number=0, file_path=n
     print('done.')
     print("Writing sink node")
     for s in sources_XY:
-        source_position+=1
-        if s != sources_XY[len(sources_XY)-1]:
-            print(str(source_position)+"...")
-        else:
-            print(str(source_position))
+        source_position += 1
+        # if s != sources_XY[len(sources_XY)-1]:
+        #    print(str(source_position)+"...")
+        # else:
+        #    print(str(source_position))
         rayleigh_values=np.random.rayleigh(scale=sigma, size=int(round(cost_surface_sort.shape[0]*percent_sinks_included)))
         index_list=[]
         for r in rayleigh_values:
@@ -196,9 +202,9 @@ def isochronesToSinks(coordinate_array, multiple, multiple_number=0, file_path=n
         sink_XY_o=XYtoPixels(sink_coordinates)
         # Remove any repeated sink locations:
         sink_XY = np.vstack({tuple(row) for row in sink_XY_o})
-        if np.array(sink_XY_o).shape != np.array(sink_XY).shape:
-			print('Original sink dim: %s x %s' %(np.array(sink_XY_o).shape[0],np.array(sink_XY_o).shape[1]))
-			print('New sink dim: %s x %s' %(sink_XY.shape[0], sink_XY.shape[1]))
+        # if np.array(sink_XY_o).shape != np.array(sink_XY).shape:
+			# print('Original sink dim: %s x %s' %(np.array(sink_XY_o).shape[0],np.array(sink_XY_o).shape[1]))
+			# print('New sink dim: %s x %s' %(sink_XY.shape[0], sink_XY.shape[1]))
         for sink in sink_XY:
             with open((outpath_txt+filename+'.txt'), 'a') as f:
                 f.write("%d %d\n" %(sink[1], sink[0]))
@@ -220,6 +226,67 @@ def findNearest(array, value):
         return idx-1
     else:
         return idx
+
+### Helper function to create subfolders NodesTXT and NodesTSV
+#     if they don't already exist
+# If these folders do already exist, they can be deleted and repopulated
+# If you restart the program, you will have to create new folders and merge
+def ensureDir(file_path):
+    exist=False
+    try:
+        os.makedirs(file_path+"/NodesTSV")
+        os.makedirs(file_path+"/NodesTXT")
+        print '......Creating node directories in %s.' %(file_path)
+        exist=False
+    except OSError as exception:
+        print '......Node directories exist. /NodesTXT and /NodesTSV already present in %s' %(file_path)
+        exist=True
+        if exception.errno != errno.EEXIST:
+            raise
+    if exist==True:
+        print "\n\n\n\n!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
+        print "! Files present in node folders - this can cause this process to fail in GFlow !"
+        print "!            Should the files be deleted now?                                  !"
+        print "!     (Yes=Y, No=N (appends to existing dirs), print affected path=P)          !"
+        print "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n\n\n\n"
+        response=False
+
+        ### FOR TESTING:
+        var=raw_input("Is it safe to delete these files? (Y, N, or P, then Enter) --> ")
+        while response==False:
+            if var=='Y' or var=='y':
+                print 'Deleting folder contents'
+                shutil.rmtree(file_path+'/')
+                os.makedirs(file_path+"/NodesTSV")
+                os.makedirs(file_path+"/NodesTXT")
+                response=True
+            elif var=='N' or var=='n':
+                return
+            elif var=='P' or var=='p':
+                print '/NodesTSV/ and /NodesTXT/ in %s' %(file_path)
+                var=raw_input("Is it safe to delete these files? (Y or N, then Enter) --> ")
+            else:
+                var=raw_input("Please enter either Y, N, or P --> ")
+
+def XYtoPixels(xy_array, convert=True):
+# Change from source_input, originally, to resist_input, the new template file
+    mapInfo=mapMatch('resist_input')
+    ymax=mapInfo[0]
+    xmin=mapInfo[3]
+    pixelsize=mapInfo[4]
+    pixel_array=[]
+    if convert==True:
+        for coordinate in xy_array:
+            # Modify X, round up fit the grid (coordinate is on the centrepoint of the cell, such that cell 1,1 would be identified as 0.5, 0.5)
+            x_grid=math.ceil((coordinate[0]-xmin)/pixelsize+0.0000001)
+            # Modify Y
+            y_grid=math.ceil((ymax-coordinate[1])/pixelsize+0.0000001)
+            pixel_array.append([int(x_grid), int(y_grid)])
+    
+    else:
+        for coordinate in xy_array:
+            pixel_array.append([int(coordinate[0]), int(coordinate[1])])
+    return pixel_array
 
 def RasterConvert(raster=None, output_name=None):
     """
@@ -311,6 +378,7 @@ def mapMatch(map1, map2=None, c=False):
 
 def main():
     print(":::PROGRAM START:::")
+    ensureDir(str(node_path))
     print("...Reading in resist/source file inputs...")
     print("...Setting GRASS region to resistance map projection...")
     grass.run_command('r.in.gdal', input=resist_infile, output='resist_input_o', flags='e', overwrite=True)
@@ -346,37 +414,45 @@ def main():
         len(u_densities)
     except(TypeError):
         u_densities = [u_densities]
+    if start_density:
+        if end_density:
+            u_densities = u_densities[np.where((u_densities >= start_density) & (u_densities <= end_density))]
+        else:
+            u_densities = u_densities[np.where((u_densities >= start_density))]
     # For each unique population density value, create a set of coordinates
     #   for all points that have that density and make files
     u_count_start = 1
     u_count_current = 0
     for d in u_densities:
-        coordinate_set = [sources[sources[:,0]==d]]
-        if len(coordinate_set[0])<50:
+        coordinate_set = sources[sources[:,0]==d]
+#        print(coordinate_set)
+#        print(len(coordinate_set))
+        if len(coordinate_set) < 50:
                 print("......Converting nodes of density %s to isochrones [nodes %s-%s of %s]" %(round(d,3), u_count_start, u_count_current, node_total))
+#                print(coordinate_set)
                 isochronesToSinks(coordinate_set, multiple=False,file_path=str(node_path))
                 u_count_start=u_count_current+1
             # Otherwise, if > 50, create multiple files with suffixes for ensuring that .tsv and .txt files are paired
         else:
-                total_length=len(coordinate_set)
-                current_length=0
-                m=0
-                while current_length<total_length:
-                    if current_length+50<total_length:
-                        u_count_current=u_count_start+50
+                total_length = len(coordinate_set)
+                current_length = 0
+                m = 0
+                while current_length < total_length:
+                    if current_length + 50 < total_length:
+                        u_count_current = u_count_start + 50
                         print("......Converting nodes of density %s to isochrones [nodes %s-%s of %s]" %(round(d,3), u_count_start, u_count_current, node_total))
-                        coordinate_subset=coordinate_set[current_length:current_length+50]
+                        coordinate_subset = coordinate_set[current_length:current_length+50]
                         isochronesToSinks(coordinate_subset, multiple=True, multiple_number=m,file_path=str(node_path))
-                        current_length+=50
-                        m+=1
-                        u_count_start=u_count_current+1
-                    elif current_length+50>=total_length:
+                        current_length += 50
+                        m += 1
+                        u_count_start = u_count_current + 1
+                    elif current_length + 50 >= total_length:
                         u_count_current=u_count_start+(total_length-current_length)
                         print("......Converting nodes of density %s to isochrones [nodes %s-%s of %s]" %(round(d,3), u_count_start, u_count_current, node_total))
                         coordinate_subset=coordinate_set[current_length:total_length]
                         isochronesToSinks(coordinate_subset, multiple=True, multiple_number=m,file_path=str(node_path))
-                        current_length=total_length
-                        u_count_start=u_count_current+1
+                        current_length = total_length
+                        u_count_start = u_count_current+1
     print(":::PROGRAM END, RANDOM SINK POINTS GENERATED:::")
 
 if __name__ == "__main__":
