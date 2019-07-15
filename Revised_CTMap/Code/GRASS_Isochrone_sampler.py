@@ -13,49 +13,44 @@
 from grass.pygrass.modules.shortcuts import general as g
 from grass.pygrass.modules.shortcuts import raster as r
 from grass.pygrass.modules.shortcuts import vector as v
-from pathlib import Path
 import grass.script as grass
-import gdal
+from osgeo import gdal, ogr
+from osgeo import gdal_array
+from osgeo import gdalnumeric
+import struct
+import sys, os
+import errno
+import numpy as np
 import math
 import sys, os
 import errno
 import numpy as np
 import shutil
-
+from datetime import datetime
 
 # Global parameters
+date = datetime.now().strftime('%d.%b.%Y') 
 
 # Resistance file should be resistance (measured in hours/pixel)
 # If needed, the function "RasterConvert" can convert a h/km map into an h/pixel map
-# resist_infile=os.path.join("PATH_TO_INPUT_FILES","RESISTANCE_MAP_HOURS_PER_PIXEL.asc")
 
-infiles = Path('/home/mairin/Documents/GradSchool/Research/CircuitTheory_Borneo/PRSB_Revision2/Revised_CTMap/')
-resist_infile = infiles/'ResistanceMap'/'Resistance_hpk_08.Jul.2019.tif'
+infiles = os.path.join('/home/mairin/Documents/GradSchool/Research/CircuitTheory_Borneo/PRSB_Revision2/Revised_CTMap/')
+resist_infile = os.path.join(infiles,'ResistanceMap','Resistance_hpk_08.Jul.2019.tif')
 
 # Sources file should be a raster of sources, where cell value=population density in that pixel
-sources_infile=os.path.join("PATH_TO_INPUT_FILES","POPULATION_DENSITY_N_PER_PIXEL.asc")
+# REPLACED BY samplePopDensity FUNCTION:
+# sources_infile = os.path.join("PATH_TO_INPUT_FILES","POPULATION_DENSITY_N_PER_PIXEL.asc")
 
 # Path to a folder where you want your NodesTSV and NodesTXT folders to be created
 # If these folders already exist, this code DELETES THESE and recreates them
 #    Change the "SUBFOLDER" to a different value in each instance if you want to
 #    run this code in multiple instances
-node_path=os.path.join("PATH_TO_SOURCE_NODES","SUBFOLDER")
-
-#Range of population densities to include in the node list
-begin_point=[1] # lowest population density to consider a discrete point
-end_point=[2000] # maximum value if applicable, otherwise any number larger
-                 # than maximum population density
-# Depreciated - this is only appropriate when running in parallel, keep =[1]
-parallel_list=[1]
-
-percent_sources_included=1 # what % of source points should be included?
-percent_sinks_included=0.01 # what % percent of pixels within the travel time
-                            # window should be included?
+node_path = os.path.join(infiles,'SourceSinks',str(date+"_Nodes"))
 
 # Mean/average one-way travel time in a hunting trip (via Levi et al.)
-mean_hunt_travel_h=3.62
+mean_hunt_travel_h = 3.62
 # convert to sigma used to parameterize Rayleigh distribution
-sigma=mean_hunt_travel_h/((math.pi/2)**0.5)
+sigma = mean_hunt_travel_h/((math.pi/2)**0.5)
 
 global node_count
 global node_total
@@ -63,6 +58,68 @@ global node_total
 #------------------------------------------------------------------------
 #               Define classes
 #------------------------------------------------------------------------
+
+def samplePopDensity(srcfile, shpfile, targetfile, pbuff = 5):
+    """
+    Sample population density raster (with 5 pixel buffer) cost-distance based isochrones from a resistance surface.
+    Inputs: srcfile - filepath (as string) to raster of population density
+        shpfile - filepath (as string) to population density shapefile (as multipoints)
+        targetfile - filepath (as string) with resolution/transformation equal to the resistance surface
+        pbuff - buffer size in # of pixels, defaults 5 pixels (equal to ~5km with this script's srcfile resolution)
+        
+    Outputs a 5-column numpy array:
+        Col 1: Population density summed within buffered
+        Col 2: X-position of point according to the targetfile's resolution/transformation
+        Col 3: Y-position of above
+        Col 4: Lon-coordinate (georeferenced)
+        Col 5: Lat-coordinate (georeferenced)
+    """
+    src_ds=gdal.Open(srcfile) 
+    gt=src_ds.GetGeoTransform()
+    rb=src_ds.GetRasterBand(1)
+    
+    tar_ds=gdal.Open(targetfile) 
+    tt=tar_ds.GetGeoTransform()
+    
+    ds=ogr.Open(shpfile)
+    lyr=ds.GetLayer()
+    
+    # Initialize arrays for buffered pop density and coordinate location in XY
+    buf_popdensities = np.empty([len(lyr),1])
+    idx = 0
+    
+    # Not needed 
+    buf_popcoordinates = np.empty([len(lyr), 2])
+    
+    # First column = x
+    # Second column = y
+    buf_popxy = np.empty([len(lyr), 2])
+    
+    for feat in lyr:
+        geom = feat.GetGeometryRef()
+        point = geom.GetGeometryRef(0)
+            
+        mx, my = point.GetX(), point.GetY()  #coord in map units
+        buf_popcoordinates[idx,0], buf_popcoordinates[idx,1] = mx, my
+            
+        #Convert from map to pixel coordinates.
+        #Only works for geotransforms with no rotation.
+        tx = int((mx - tt[0]) / tt[1]) #x pixel (target)
+        ty = int((my - tt[3]) / tt[5]) #y pixel (target)
+        px = int((mx - gt[0]) / gt[1]) #x pixel (sample)
+        py = int((my - gt[3]) / gt[5]) #y pixel (sample)
+        buf_popxy[idx,0], buf_popxy[idx,1] = tx, ty
+        # Sample population density at each settlement point, using a 5 pixel (~5km) buffer
+        bufferval = np.array(rb.ReadAsArray(px,py,1,1,buf_xsize=pbuff, buf_ysize=pbuff))
+        bufferval[bufferval < 0] = np.nan
+        buf_popdensities[idx] = np.nansum(bufferval)
+        idx += 1
+    
+    popdens = np.delete(buf_popdensities, np.where(buf_popdensities == np.min(buf_popdensities)))
+    popcoords = np.delete(buf_popcoordinates, np.where(buf_popdensities == np.min(buf_popdensities)), axis = 0)
+    popxy = np.delete(buf_popxy, np.where(buf_popdensities == np.min(buf_popdensities)), axis = 0)
+    pop_xyz = np.column_stack((popdens, popxy[:,0], popxy[:,1], popcoords[:,0], popcoords[:,1]))
+    return pop_xyz
 
 def isochronesToSinks(coordinate_array, multiple, multiple_number=0, file_path=node_path):
     """
@@ -78,8 +135,8 @@ def isochronesToSinks(coordinate_array, multiple, multiple_number=0, file_path=n
     """
     global node_count
     global node_total
-    source_id=coordinate_array[0][2]
-    sources_XY=XYtoPixels(coordinate_array)
+    source_id = coordinate_array[0][2]
+    sources_XY = XYtoPixels(coordinate_array)
     # Starting node positions for the TSV node-to-node file
     source_position=0
     sink_position=len(sources_XY)
@@ -96,7 +153,7 @@ def isochronesToSinks(coordinate_array, multiple, multiple_number=0, file_path=n
     cost_surface_array=(np.array([[float(j) for j in i.split('|')] for i in cost_surface.splitlines()]))
     cost_surface_array[:,2]=np.absolute(cost_surface_array[:,2])
     if cost_surface_array.shape[0]<10:
-        print "Empty cost array (<10 sink nodes), skipping"
+        print("Empty cost array (<10 sink nodes), skipping")
         node_count+=1
         return
     cost_surface_sort=cost_surface_array[cost_surface_array[:,2].argsort()]
@@ -104,21 +161,21 @@ def isochronesToSinks(coordinate_array, multiple, multiple_number=0, file_path=n
         filename="nodes_"+str(source_id)+"_0"
     elif multiple==True:
         filename="nodes_"+str(source_id)+"_"+str(multiple_number)
-    print "Writing source node",
+    print("Writing source node")
     source_node_counter=1
     with open((outpath_txt+filename+'.txt'), 'w') as f:
         for s in sources_XY:
             print str(source_node_counter)+"...",
             f.write("%d %d\n" %(s[1], s[0]))
             source_node_counter+=1
-    print 'done.'
-    print "Writing sink node",
+    print('done.')
+    print("Writing sink node")
     for s in sources_XY:
         source_position+=1
         if s != sources_XY[len(sources_XY)-1]:
-            print str(source_position)+"...",
+            print(str(source_position)+"...")
         else:
-            print str(source_position)
+            print(str(source_position))
         rayleigh_values=np.random.rayleigh(scale=sigma, size=int(round(cost_surface_sort.shape[0]*percent_sinks_included)))
         index_list=[]
         for r in rayleigh_values:
@@ -130,8 +187,8 @@ def isochronesToSinks(coordinate_array, multiple, multiple_number=0, file_path=n
         # Remove any repeated sink locations:
         sink_XY = np.vstack({tuple(row) for row in sink_XY_o})
         if np.array(sink_XY_o).shape != np.array(sink_XY).shape:
-			print 'Original sink dim: %s x %s' %(np.array(sink_XY_o).shape[0],np.array(sink_XY_o).shape[1])
-			print 'New sink dim: %s x %s' %(sink_XY.shape[0], sink_XY.shape[1])
+			print('Original sink dim: %s x %s' %(np.array(sink_XY_o).shape[0],np.array(sink_XY_o).shape[1]))
+			print('New sink dim: %s x %s' %(sink_XY.shape[0], sink_XY.shape[1]))
         for sink in sink_XY:
             with open((outpath_txt+filename+'.txt'), 'a') as f:
                 f.write("%d %d\n" %(sink[1], sink[0]))
@@ -139,7 +196,9 @@ def isochronesToSinks(coordinate_array, multiple, multiple_number=0, file_path=n
             with open((outpath_tsv+filename+'.tsv'), 'a') as f:
                 f.write('%d\t%d\n' %(source_position, sink_position))
         node_count+=1
-    print "...done."
+    print("...done.")
+
+
 
 def findNearest(array, value):
     """
@@ -153,6 +212,8 @@ def findNearest(array, value):
         return idx-1
     else:
         return idx
+
+
 
 def XYtoPixels(xy_array):
     """
@@ -173,51 +234,6 @@ def XYtoPixels(xy_array):
         pixel_array.append([int(x_grid), int(y_grid)])
     return pixel_array
 
-def ensureDir(file_path):
-    """
-    Helper function to create subfolders NodesTXT and NodesTSV
-        if they don't already exist
-    If these folders do already exist, they can be deleted and repopulated
-    If you restart the program, you will have to create new folders and merge
-    """
-    exist=False
-    try:
-        os.makedirs(file_path+"/NodesTSV")
-        os.makedirs(file_path+"/NodesTXT")
-        print '......Creating node directories in %s.' %(file_path)
-        exist=False
-    except OSError as exception:
-        print '......Node directories exist. /NodesTXT and /NodesTSV already present in %s' %(file_path)
-        exist=True
-        if exception.errno != errno.EEXIST:
-            raise
-    if exist==True:
-        print "\n\n\n\n!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
-        print "! Files present in node folders - this can cause this process to fail in GFlow !"
-        print "!            Can the files be deleted now? Please check first!                 !"
-        print "!             (Yes=Y, No=N, print affected path=P)                             !"
-        print "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n\n\n\n"
-
-        var=raw_input("Is it safe to delete these files? (Y, N, or P, then Enter) --> ")
-		response=False
-        while response==False:
-            if var=='Y' or var=='y':
-                print 'Deleting folder contents'
-                shutil.rmtree(file_path+'/')
-                os.makedirs(file_path+"/NodesTSV")
-                os.makedirs(file_path+"/NodesTXT")
-                response=True
-            elif var=='N' or var=='n':
-                sys.exit("Please move these folders, or change the node_path variable in the Python script.")
-            elif var=='P' or var=='p':
-                print '/NodesTSV/ and /NodesTXT/ in %s' %(file_path)
-                var=raw_input("Is it safe to delete these files? (Y or N, then Enter) --> ")
-            else:
-                var=raw_input("Please enter either Y, N, or P --> ")
-
-### Helper function to convert h/km rasters in decimal degrees into h/pixel
-# Inputs: raster - GRASS' name for the map to be converted from h/km into h/pixel
-#         output_name - GRASS name for the map to be created
 def RasterConvert(raster=None, output_name=None):
     """
     Helper function to convert h/km rasters in decimal degrees into h/pixel
@@ -226,7 +242,7 @@ def RasterConvert(raster=None, output_name=None):
         output_name - GRASS name for the map to be created
     """
     if output_name==None or raster==None:
-        print "Please provide input and output map names for raster conversion. Quitting, please try again."
+        print("Please provide input and output map names for raster conversion. Quitting, please try again.")
         return
     region_info=grass.read_command('g.region', rast=raster, flags='m')
     # Resolution in meters
@@ -237,17 +253,17 @@ def RasterConvert(raster=None, output_name=None):
         m_res=ns_res_m
         next
     elif round(ns_res_m,2)==round(ew_res_m, 2):
-        print "Resolution (m) of the NS/EW directions within .01 decimal places. RasterConvert() will average them."
+        print("Resolution (m) of the NS/EW directions within .01 decimal places. RasterConvert() will average them.")
         m_res=(ns_res_m+ew_res_m)/2
     else:
-        print "\n\n\n\n!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n!              Resolution (m) of the NS/EW directions NOT within 0.01 decimal places:        !\n!     NS resolution (m): %s   |   EW resolution (m): %s                   !" %(ns_res_m, ew_res_m)
-        print "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n\n"
-        print "! Do you want RasterConvert() to average them, or do you want to quit? ([A]verage or [Q]uit) !\n\n"
+        print("\n\n\n\n!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n!              Resolution (m) of the NS/EW directions NOT within 0.01 decimal places:        !\n!     NS resolution (m): %s   |   EW resolution (m): %s                   !" %(ns_res_m, ew_res_m))
+        print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n\n")
+        print("! Do you want RasterConvert() to average them, or do you want to quit? ([A]verage or [Q]uit) !\n\n")
         answer=False
         avg=raw_input('[A] or [Q], then Enter --> ')
         while answer==False:
             if avg=='A' or avg=='a':
-                print "Averaging..."
+                print("Averaging...")
                 m_res=(ns_res_m+ew_res_m)/2
                 answer=True
             elif avg=='Q' or avg=='q':
@@ -258,7 +274,7 @@ def RasterConvert(raster=None, output_name=None):
     if m_res < 1:
       # Convert from decimal degrees into meters
       m_res2 = 111139*(m_res)
-      print "Resolution in m is equal to %s, assuming this is incorrect and applying %s instead" %(m_res, m_res2)
+      print("Resolution in m is equal to %s, assuming this is incorrect and applying %s instead" %(m_res, m_res2))
       m_res = m_res2
     # Create the conversion value to translate hours/km as our pixel value to h/pixel
     # based on m_res being the meter-wise resolution of the map
@@ -273,7 +289,7 @@ def mapMatch(map1, map2=None, c=False):
     stats_string_1=grass.read_command('r.info', map=map1, flags='g')
     stats_array_1=np.array(stats_string_1.split('\n'))
     if c==True:
-        print "...Comparing maps",
+        print("...Comparing maps")
         stats_string_2=grass.read_command('r.info', map=map2, flags='g')
         stats_array_2=np.array(stats_string_2.split('\n'))
         for i in range(0,8):
@@ -285,12 +301,12 @@ def mapMatch(map1, map2=None, c=False):
                     ignore=raw_input("Would you like to ignore these problems? (Y or N (quit), then Enter) -->")
                     if ignore=='Y' or ignore=='y':
                         answer=True
-                        print "...ignoring. Region will be assigned according to resistance map parameters."
+                        print("...ignoring. Region will be assigned according to resistance map parameters.")
                     elif ignore=='N' or ignore=='n':
                         answer=True
                         sys.exit("\nPlease address these discrepancies and try again.")
     # If the maps match, or if only one map is provided, return map statistics
-        print "...maps match. Returning statistics for for map \'%s\'" %(map1)
+        print("...maps match. Returning statistics for for map \'%s\'" %(map1))
     y_max=float(stats_array_1[0].split('=')[1])
     y_min=float(stats_array_1[1].split('=')[1])
     x_max=float(stats_array_1[2].split('=')[1])
@@ -307,122 +323,61 @@ def mapMatch(map1, map2=None, c=False):
     #------------------------------------------------------------------------
 
 def main():
-    print ":::PROGRAM START:::"
-    print "...Reading in resist/source file inputs..."
-    print "\n\n\n\n!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
-    print "!   This overwrites maps resist_input & source_input in GRASS session  !"
-    print "!     (local files outside the session will not be affected)           !"
-    print "!        Are you sure you want to continue? (Yes=Y, No=N)              !"
-    print "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n\n\n\n"
-    var=raw_input("Do you want to continue? (Y or N, then Enter) --> ")
-    valid_response=False
-    while valid_response==False:
-        if var=='N' or var=='n':
-            sys.exit("...exiting.")
-        elif var=='Y' or var=='y':
-            print ("...proceeding...")
-            valid_response=True
-        else:
-            var=raw_input("Please enter either Y or N --> ")
-            # print "...Confirming/creating source/sink node folder structure..."
-
-    ensureDir(str(node_path))
-# Uncomment this to see a list of all rasters loaded into the GRASS session
-#     g.list(type='raster')
-    print "...Setting GRASS region to resistance map projection..."
+    print(":::PROGRAM START:::")
+    print("...Reading in resist/source file inputs...")
+    print("...Setting GRASS region to resistance map projection...")
     grass.run_command('r.in.gdal', input=resist_infile, output='resist_input_o', flags='e', overwrite=True)
-    grass.run_command('r.in.gdal', input=sources_infile, output='source_input', flags='oe', overwrite=True)
-
+    
+    ### REPLACE
+    # grass.run_command('r.in.gdal', input=sources_infile, output='source_input', flags='oe', overwrite=True)
+    
+    # Convert from kph to hours per pixel
     RasterConvert('resist_input_o','resist_input')
-    # Compare the extent and resolution of source_input and resist_input
-    maxY, minY, maxX, minX, res = mapMatch('source_input', 'resist_input',
-		c=True)
-    # Extending the region of the GRASS session based on the now checked resist_input
+    
+    # Focus the region of the GRASS session and apply a mask
+    
     grass.run_command('g.region', rast='resist_input')
-    # Create an X-Y-Z file of the X and Y coordinates with population size Z
-	#	in the input file
-    print "...Converting sources to XYZ georeferenced points:"
-    source_xyz=grass.read_command('r.out.xyz', input='source_input')
-    # Remove sources less than the cutoff
-    o_sources=np.array([[float(j) for j in i.split('|')]
-		for i in source_xyz.splitlines()])
-
-    for parallel in parallel_list:
-        print "Generating node files for population densities between
-			lower_cutoff and upper_cutoff"
-        print "...Lower cutoff: %s\n...Upper cutoff: %s" %(
-			begin_point, end_point)
-        delete=[]
-        upper_delete_count=0
-        lower_delete_count=0
-
-        lower_cutoff=begin_point
-        upper_cutoff=end_point
-        # Count number of nodes to be deleted/included
-        for i in range(0, len(o_sources)):
-            if(o_sources[i,2]<lower_cutoff):
-                delete.append(i)
-                lower_delete_count+=1
-            if(o_sources[i,2]>upper_cutoff and upper_cutoff!=False):
-                delete.append(i)
-                upper_delete_count+=1
-
-        sources=np.delete(o_sources,delete,0)
-
-        print "\n...%s nodes below density cutoff of %s\n...%s nodes above
-			density cutoff of %s\n...(out of %s originally); removed for a total
-			of %s source nodes." %(
-			lower_delete_count, lower_cutoff, upper_delete_count, upper_cutoff,
-			len(o_sources), len(sources))
-
-        global node_total
-        node_total=len(sources)
-        global node_count
-        node_count=1
-        o_sources=None
-        # Unique population density values:
-        u_densities=np.unique(sources[:,2])
-        try:
-            len(u_densities)
-        except(TypeError):
-            u_densities=[u_densities]
-        # For each unique population density value, create a set of coordinates
-        #   for all points that have that density and make files
-        u_count_start=1
-        u_count_current=0
-        for d in u_densities:
-            coordinate_set_o=[]
-            for s in sources:
-                if s[2]==d:
-                    # Make a list, coordinate_set_o, populated with the
-                    # coordinates of points where density=the current
-					# population density
-                    u_count_current+=1
-                    coordinate_set_o.append(s)
-            coordinate_set_np=np.array(coordinate_set_o)
-            # print coordinate_set_np.shape[0]
-			# Randomly select X% of the sources to sample from the set of all
-			#	sources - (currently set to 100%)
-            coordinate_set=coordinate_set_np[np.random.choice(coordinate_set_np.shape[0], size=int(math.ceil(percent_sources_included*coordinate_set_np.shape[0])), replace=False),:]
-            # print coordinate_set.shape[0]
-            # print "\n"+str(coordinate_set)
-
-            # If there are less than 50 coordinates for a given population density,
-            #   make a single .txt and a single .tsv file for that population density
-            if len(coordinate_set)<50:
-                print "......Converting nodes of density %s to isochrones [nodes %s-%s of %s]" %(round(d,3), u_count_start, u_count_current, node_total)
-                # Call isoChronesToSinks with the set of coordinates for the current set of sources
+    grass.run_command('r.mask', rast='resist_input', overwrite = True)
+    
+    shppath = os.path.join('/home/mairin/Documents/GradSchool/Research/CircuitTheory_Borneo/distanceToPopulation/')
+    shpfile = os.path.join(shppath,'Revision2_PopulationSources','sab_swk_merged_gazetteervillages_clipped.shp')
+    
+    srcpath = os.path.join('/home/mairin/Documents/GradSchool/Research/CircuitTheory_Borneo/PRSB_Revision2/Revised_CTMap/SourceSinks/')
+    srcfile = os.path.join(srcpath,'asuds00ag.tif')
+    
+    sources = samplePopDensity(srcfile, shpfile, targetfile = str(resist_infile))
+    
+    global node_total
+    node_total = len(sources)
+    global node_count
+    node_count = 1
+    o_sources = None
+    
+    # Unique densities:
+    u_densities = np.unique(sources[:,0])
+    try:
+        len(u_densities)
+    except(TypeError):
+        u_densities = [u_densities]
+    # For each unique population density value, create a set of coordinates
+    #   for all points that have that density and make files
+    u_count_start = 1
+    u_count_current = 0
+    for d in u_densities:
+        coordinate_set = [sources[sources[:,0]==d]]
+        if len(coordinate_set[0])<50:
+                print("......Converting nodes of density %s to isochrones [nodes %s-%s of %s]" %(round(d,3), u_count_start, u_count_current, node_total))
                 isochronesToSinks(coordinate_set, multiple=False,file_path=str(node_path))
                 u_count_start=u_count_current+1
             # Otherwise, if > 50, create multiple files with suffixes for ensuring that .tsv and .txt files are paired
-            else:
+        else:
                 total_length=len(coordinate_set)
                 current_length=0
                 m=0
                 while current_length<total_length:
                     if current_length+50<total_length:
                         u_count_current=u_count_start+50
-                        print "......Converting nodes of density %s to isochrones [nodes %s-%s of %s]" %(round(d,3), u_count_start, u_count_current, node_total)
+                        print("......Converting nodes of density %s to isochrones [nodes %s-%s of %s]" %(round(d,3), u_count_start, u_count_current, node_total))
                         coordinate_subset=coordinate_set[current_length:current_length+50]
                         isochronesToSinks(coordinate_subset, multiple=True, multiple_number=m,file_path=str(node_path))
                         current_length+=50
@@ -430,7 +385,7 @@ def main():
                         u_count_start=u_count_current+1
                     elif current_length+50>=total_length:
                         u_count_current=u_count_start+(total_length-current_length)
-                        print "......Converting nodes of density %s to isochrones [nodes %s-%s of %s]" %(round(d,3), u_count_start, u_count_current, node_total)
+                        print("......Converting nodes of density %s to isochrones [nodes %s-%s of %s]" %(round(d,3), u_count_start, u_count_current, node_total))
                         coordinate_subset=coordinate_set[current_length:total_length]
                         isochronesToSinks(coordinate_subset, multiple=True, multiple_number=m,file_path=str(node_path))
                         current_length=total_length

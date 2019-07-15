@@ -1,0 +1,13 @@
+# ignore large .tif files
+*.tif
+
+# also ignore shape files
+*.shp 
+*.shx 
+*.dbf
+
+# Ignore non-code directories
+/Revised_CTMap/GFlowOutputs/
+/Revised_CTMap/ResistanceMap/
+/Revised_CTMap/SourceSinks/
+/Revised_CTMap/Code/GFlow-0.1.7-alpha/
