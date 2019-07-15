@@ -46,6 +46,7 @@ resist_infile = os.path.join(infiles,'ResistanceMap','Resistance_hpk_08.Jul.2019
 #    Change the "SUBFOLDER" to a different value in each instance if you want to
 #    run this code in multiple instances
 node_path = os.path.join(infiles,'SourceSinks',str(date+"_Nodes"))
+percent_sinks_included = 0.01 # Sample 1% of sinks
 
 # Mean/average one-way travel time in a hunting trip (via Levi et al.)
 mean_hunt_travel_h = 3.62
@@ -68,11 +69,11 @@ def samplePopDensity(srcfile, shpfile, targetfile, pbuff = 5):
         pbuff - buffer size in # of pixels, defaults 5 pixels (equal to ~5km with this script's srcfile resolution)
         
     Outputs a 5-column numpy array:
-        Col 1: Population density summed within buffered
-        Col 2: X-position of point according to the targetfile's resolution/transformation
-        Col 3: Y-position of above
-        Col 4: Lon-coordinate (georeferenced)
-        Col 5: Lat-coordinate (georeferenced)
+        0: Population density summed within buffer
+        1: X-position of point according to the targetfile's resolution/transformation
+        2: Y-position of above
+        Col 3: Lon-coordinate (georeferenced)
+        Col 4: Lat-coordinate (georeferenced)
     """
     src_ds=gdal.Open(srcfile) 
     gt=src_ds.GetGeoTransform()
@@ -101,7 +102,7 @@ def samplePopDensity(srcfile, shpfile, targetfile, pbuff = 5):
             
         mx, my = point.GetX(), point.GetY()  #coord in map units
         buf_popcoordinates[idx,0], buf_popcoordinates[idx,1] = mx, my
-            
+        
         #Convert from map to pixel coordinates.
         #Only works for geotransforms with no rotation.
         tx = int((mx - tt[0]) / tt[1]) #x pixel (target)
@@ -115,9 +116,13 @@ def samplePopDensity(srcfile, shpfile, targetfile, pbuff = 5):
         buf_popdensities[idx] = np.nansum(bufferval)
         idx += 1
     
-    popdens = np.delete(buf_popdensities, np.where(buf_popdensities == np.min(buf_popdensities)))
-    popcoords = np.delete(buf_popcoordinates, np.where(buf_popdensities == np.min(buf_popdensities)), axis = 0)
-    popxy = np.delete(buf_popxy, np.where(buf_popdensities == np.min(buf_popdensities)), axis = 0)
+    # Remove any 0 population density points
+    # Also remove any values not within the target extent
+    
+    popdens = np.delete(buf_popdensities, np.where((buf_popdensities <= 0) | (buf_popxy < 0)), axis = 0)
+    popcoords = np.delete(buf_popcoordinates, np.where((buf_popdensities <= 0) | (buf_popxy < 0)), axis = 0)
+    popxy = np.delete(buf_popxy, np.where((buf_popdensities <= 0) | (buf_popxy < 0)), axis = 0)
+    
     pop_xyz = np.column_stack((popdens, popxy[:,0], popxy[:,1], popcoords[:,0], popcoords[:,1]))
     return pop_xyz
 
@@ -135,18 +140,23 @@ def isochronesToSinks(coordinate_array, multiple, multiple_number=0, file_path=n
     """
     global node_count
     global node_total
-    source_id = coordinate_array[0][2]
-    sources_XY = XYtoPixels(coordinate_array)
-    # Starting node positions for the TSV node-to-node file
-    source_position=0
-    sink_position=len(sources_XY)
-    coordinates=[]
-    for c in coordinate_array:
-        coordinates.append(float(c[0]))
-        coordinates.append(float(c[1]))
-# Creates output .tsv files into NodesTSV folder
+    # Creates output .tsv files into NodesTSV folder
     outpath_tsv=file_path+"/NodesTSV/"
     outpath_txt=file_path+"/NodesTXT/"
+    
+    source_id = coordinate_array[:,0]
+    # source_id = coordinate_array[0][2]
+    # sources_XY = XYtoPixels(coordinate_array)
+    sources_XY = np.column_stack([coordinate_array[:,1], coordinate_array[:,2]])
+    
+    # Starting node positions for the TSV node-to-node file
+    source_position = 0
+    sink_position = len(sources_XY)
+    coordinates = []
+    for c in coordinate_array:
+        coordinates.append(float(c[3]))
+        coordinates.append(float(c[4]))
+    
     # Uses grass to create a cost surface for that source based on the resistance map input
     grass.run_command('r.cost', input='resist_input', output='temp_cost', start_coordinates=coordinates, flags='', overwrite=True, max_cost=(mean_hunt_travel_h*2))# , memory=50, null_cost=100)
     cost_surface=grass.read_command('r.out.xyz', input='temp_cost')
@@ -198,8 +208,6 @@ def isochronesToSinks(coordinate_array, multiple, multiple_number=0, file_path=n
         node_count+=1
     print("...done.")
 
-
-
 def findNearest(array, value):
     """
     Find the nearest value in the cost distance array to a randomly sampled Rayleigh value.
@@ -212,27 +220,6 @@ def findNearest(array, value):
         return idx-1
     else:
         return idx
-
-
-
-def XYtoPixels(xy_array):
-    """
-    Convert georeferenced coordinates to X-Y sink points for GFlow
-        Input: xy_array - georeferenced coordinate array from GRASS's r.out.xyz function
-        Output: pixel_array - the same array with array-based x-y positions for GFlow input
-    """
-    mapInfo=mapMatch('source_input')
-    ymax=mapInfo[0]
-    xmin=mapInfo[3]
-    pixelsize=mapInfo[4]
-    pixel_array=[]
-    for coordinate in xy_array:
-        # Modify X, round up fit the grid (coordinate is on the centrepoint of the cell, such that cell 1,1 would be identified as 0.5, 0.5)
-        x_grid=math.ceil((coordinate[0]-xmin)/pixelsize+0.0000001)
-        # Modify Y
-        y_grid=math.ceil((ymax-coordinate[1])/pixelsize+0.0000001)
-        pixel_array.append([int(x_grid), int(y_grid)])
-    return pixel_array
 
 def RasterConvert(raster=None, output_name=None):
     """
