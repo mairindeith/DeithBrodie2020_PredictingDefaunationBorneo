@@ -56,8 +56,10 @@ global node_total
 
 # Start and end points (for when the code fails and needs to restart at an intermediate level)
 # Set to "False" to ignore this
-start_density = 68.61
-end_density = np.inf
+# start_density = 105.253
+start_density = False
+#end_density = np.inf
+end_density = False
 
 #------------------------------------------------------------------------
 #               Define classes
@@ -148,7 +150,7 @@ def isochronesToSinks(coordinate_array, multiple, multiple_number=0, file_path=n
     outpath_txt=file_path+"/NodesTXT/"
     
     source_id = float(np.unique(coordinate_array[:,0]))
-    print(source_id)
+    
 
     # source_id = coordinate_array[0][2]
     # sources_XY = XYtoPixels(coordinate_array)
@@ -177,15 +179,21 @@ def isochronesToSinks(coordinate_array, multiple, multiple_number=0, file_path=n
         filename="nodes_"+str(source_id)+"_0"
     elif multiple==True:
         filename="nodes_"+str(source_id)+"_"+str(multiple_number)
-    print("Writing source node")
+    print("Writing source node(s)")
     source_node_counter=1
+    try:
+        os.remove(outpath_txt+filename+'.txt')
+        os.remove(outpath_txt+filename+'.tsv') 
+        print("\n Removed exising files:", str(outpath_txt+filename))
+    except Exception:
+        pass
     with open((outpath_txt+filename+'.txt'), 'w') as f:
         for s in sources_XY:
             print str(source_node_counter)+"...",
             f.write("%d %d\n" %(s[1], s[0]))
             source_node_counter+=1
     print('done.')
-    print("Writing sink node")
+    print("Writing sink node(s)")
     for s in sources_XY:
         source_position += 1
         # if s != sources_XY[len(sources_XY)-1]:
@@ -410,28 +418,45 @@ def main():
     
     # Unique densities:
     u_densities = np.unique(sources[:,0])
+    
     try:
         len(u_densities)
     except(TypeError):
         u_densities = [u_densities]
+    
+    print("\n" + str(len(u_densities)) + " unique population densities")
+    u_count_start = 0
+    u_count_current = 0
+    
     if start_density:
         if end_density:
-            u_densities = u_densities[np.where((u_densities >= start_density) & (u_densities <= end_density))]
+            include = np.where((u_densities >= start_density) & (u_densities <= end_density))
         else:
-            u_densities = u_densities[np.where((u_densities >= start_density))]
+            include = np.where((u_densities >= start_density))
+        # print(include[0])
+        # print(u_count_start)
+        
+        # u_count_start, u_count_current = int(include[0][0]), int(include[0])
+        u_count_start = len(np.where((sources[:,0] < start_density))[0])
+        u_densities = u_densities[include]
+        # print(np.where(sources[:,0] not in u_densities))
+        # return
+        u_count_current = u_count_start
+        # print(u_count_start)
+        
     # For each unique population density value, create a set of coordinates
     #   for all points that have that density and make files
-    u_count_start = 1
-    u_count_current = 0
+
     for d in u_densities:
         coordinate_set = sources[sources[:,0]==d]
 #        print(coordinate_set)
 #        print(len(coordinate_set))
         if len(coordinate_set) < 50:
-                print("......Converting nodes of density %s to isochrones [nodes %s-%s of %s]" %(round(d,3), u_count_start, u_count_current, node_total))
-#                print(coordinate_set)
-                isochronesToSinks(coordinate_set, multiple=False,file_path=str(node_path))
-                u_count_start=u_count_current+1
+            u_count_start=u_count_current+1
+            u_count_current = u_count_start + len(coordinate_set)
+            print("......Converting nodes of density %s to isochrones [nodes %s-%s of %s]" %(round(d,3), u_count_start, u_count_current, node_total))
+#           print(coordinate_set)
+            isochronesToSinks(coordinate_set, multiple=False,file_path=str(node_path))
             # Otherwise, if > 50, create multiple files with suffixes for ensuring that .tsv and .txt files are paired
         else:
                 total_length = len(coordinate_set)
