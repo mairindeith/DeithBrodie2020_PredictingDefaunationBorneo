@@ -1,0 +1,79 @@
+#!/usr/bin/env python
+
+#------------------------
+# Simple script to sample raster values and create an asc raster 
+#
+# First created by Mairin Deith in July 2019
+# Last edited for revised mapping effort on Jul14 2019
+#------------------------
+
+#------------------------
+# Note about population density conversion/justification for 5km buffer:
+#   Areas with high population density also tend to have large numbers of points
+#   Therefore even though high populations should = greater urban extent,
+#       this is hopefully (???) compensated for with higher point density
+# e.g. Consider that Sampurna, pop = 35,301, has only one population point
+#   (estimated population = 52,244). By comparison, there is no single point for 
+#   Kota Kinabalu, but many, each falling within the high-density polygon
+#------------------------
+
+from osgeo import gdal, ogr
+from pathlib import Path
+import struct
+import sys, os
+import errno
+import numpy as np
+
+shppath = Path('/home/mairin/Documents/GradSchool/Research/CircuitTheory_Borneo/distanceToPopulation/')
+shpfile = str(shppath/'Revision2_PopulationSources'/'sab_swk_merged_gazetteervillages_clipped.shp')
+
+srcpath = Path('/home/mairin/Documents/GradSchool/Research/CircuitTheory_Borneo/PRSB_Revision2/Revised_CTMap/SourceSinks/')
+srcfile = str(srcpath/'asuds00ag.tif')
+
+src_ds=gdal.Open(srcfile) 
+gt=src_ds.GetGeoTransform()
+rb=src_ds.GetRasterBand(1)
+
+ds=ogr.Open(shpfile)
+lyr=ds.GetLayer()
+
+# Initialize arrays for buffered pop density and coordinate location in XY
+buf_popdensities = np.empty([len(lyr),1])
+idx = 0
+
+# Not needed 
+# buf_popcoordinates = np.empty([len(lyr), 2])
+
+# First column = x
+# Second column = y
+buf_popxy = np.empty([len(lyr), 2])
+
+for feat in lyr:
+    geom = feat.GetGeometryRef()
+    point = geom.GetGeometryRef(0)
+    
+    mx, my = point.GetX(), point.GetY()  #coord in map units
+#    buf_popcoordinates[idx,0], buf_popcoordinates[idx,1] = mx, my
+    
+    #Convert from map to pixel coordinates.
+    #Only works for geotransforms with no rotation.
+    px = int((mx - gt[0]) / gt[1]) #x pixel
+    py = int((my - gt[3]) / gt[5]) #y pixel
+    buf_popxy[idx,0], buf_popxy[idx,1] = px, py
+    # Sample population density at each settlement point, using a 5km buffer
+    bufferval = np.array(rb.ReadAsArray(px,py,1,1,buf_xsize=5, buf_ysize=5))
+    bufferval[bufferval < 0] = np.nan
+    buf_popdensities[idx] = np.nansum(bufferval)
+    
+    idx += 1
+    
+popdens = np.delete(buf_popdensities, np.where(buf_popdensities == np.min(buf_popdensities)))
+# popcoords = np.delete(buf_popcoordinates, np.where(buf_popdensities == np.min(buf_popdensities)), axis = 0)
+popxy = np.delete(buf_popxy, np.where(buf_popdensities == np.min(buf_popdensities)), axis = 0)
+pop_xyz = np.column_stack((popxy[:,0], popxy[:,1], popdens))
+
+return pop_xyz
+
+# Remove points that are only nodata
+
+
