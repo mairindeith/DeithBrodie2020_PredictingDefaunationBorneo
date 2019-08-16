@@ -4,13 +4,14 @@
 #
 # This script uses maps created with 'MSYBorneo_ResistanceMapLayers_Preparation.py'
 # Created by Mairin Deith on Nov12 2017
-# Last edited for revised mapping effort on Jul4 2019
+# Last edited for revised mapping effort on Jul26 2019
 #------------------------
 # Hierarcy of resistance values:
 #   Walking speed - modified by land cover type (incl. plantations) and slope
 #       - presumed maximum at ideal slope is 6kph
 #   Roadways - logging roads have a max speed of 20kph, major roads 60 kph
 #   Rivers - passable rivers (Strahler order <3), navigable rivers (Strahler order > 5 is navigable at 20kph)
+# In this version: 
 
 #!/usr/bin/env python
 
@@ -128,8 +129,10 @@ if st_arr.shape != tmp_shape:
 # Strahler order: 1 and 2 - walking speed
 #                 3 and 4 - impassible - maybe this is too much...
 #                 5+      - 20 kph
-speed_arr[st_arr == 3] = np.nan
-speed_arr[st_arr == 4] = np.nan
+# Modification: intermediate rivers 
+speed_arr[st_arr == 3] = 500.0
+speed_arr[st_arr == 4] = 500.0
+speed_arr[st_arr == 4] = 10.0
 speed_arr[st_arr == 5] = 20.0
 
 del st_arr
@@ -143,9 +146,8 @@ with rio.open(str(road_loc), 'r') as ds:
 if rd_arr.shape != tmp_shape:
     quit("Error! Could not create resistance map.\n Reason: rd_arr does not match template dimensions.")
 
-# Strahler order: 1 and 2 - walking speed
-#                 3 and 4 - impassible
-#                 5+      - 20 kph
+# Roads: 1 - main roads
+#        2 - logging 
 speed_arr[rd_arr == 1] = 60.0
 speed_arr[rd_arr == 2] = 20.0
 

@@ -7,7 +7,7 @@
 #    $ python isochrone_sampler.py
 #
 # First created by Mairin Deith in Spring 2018
-# Last edited for revised mapping effort on Jul8 2019
+# Last edited for revised mapping effort on Jul26 2019
 #------------------------
 
 from grass.pygrass.modules.shortcuts import general as g
@@ -25,18 +25,27 @@ import numpy as np
 import shutil
 from datetime import datetime
 
+# Command-line arguments
+global overwrite_nodes
+global average_res
+if "overwrite_nodes" in sys.argv:
+    overwrite_nodes = True
+else:
+    overwrite_nodes = False
+
+if "avg" in sys.argv:
+    average_res = True
+else:
+    average_res = False
+
 # Global parameters
 date = datetime.now().strftime('%d.%b.%Y') 
-
+global node_count
+global node_total
 # Resistance file should be resistance (measured in hours/pixel)
 # If needed, the function "RasterConvert" can convert a h/km map into an h/pixel map
-
 infiles = os.path.join('/home/mairin/Documents/GradSchool/Research/CircuitTheory_Borneo/PRSB_Revision2/Revised_CTMap/')
-resist_infile = os.path.join(infiles,'ResistanceMap','Resistance_hpk_08.Jul.2019.tif')
-
-# Sources file should be a raster of sources, where cell value=population density in that pixel
-# REPLACED BY samplePopDensity FUNCTION:
-# sources_infile = os.path.join("PATH_TO_INPUT_FILES","POPULATION_DENSITY_N_PER_PIXEL.asc")
+resist_infile = os.path.join(infiles,'ResistanceMap','Resistance_hpk_26.Jul.2019.tif')
 
 # Path to a folder where you want your NodesTSV and NodesTXT folders to be created
 # If these folders already exist, this code DELETES THESE and recreates them
@@ -50,9 +59,6 @@ percent_sinks_included = 0.01 # Sample 1% of sinks
 mean_hunt_travel_h = 3.62
 # convert to sigma used to parameterize Rayleigh distribution
 sigma = mean_hunt_travel_h/((math.pi/2)**0.5)
-
-global node_count
-global node_total
 
 # Start and end points (for when the code fails and needs to restart at an intermediate level)
 # Set to "False" to ignore this
@@ -148,22 +154,19 @@ def isochronesToSinks(coordinate_array, multiple, multiple_number=0, file_path=n
     # Creates output .tsv files into NodesTSV folder
     outpath_tsv=file_path+"/NodesTSV/"
     outpath_txt=file_path+"/NodesTXT/"
-    
     source_id = float(np.unique(coordinate_array[:,0]))
     
-
-    # source_id = coordinate_array[0][2]
-    # sources_XY = XYtoPixels(coordinate_array)
-    sources_XY=XYtoPixels(coordinate_array, convert=False)
-    # sources_XY = np.column_stack([coordinate_array[:,1], coordinate_array[:,2]])
-    
-    # Starting node positions for the TSV node-to-node file
-    source_position = 0
-    sink_position = len(sources_XY)
     coordinates = []
     for c in coordinate_array:
         coordinates.append(float(c[3]))
         coordinates.append(float(c[4]))
+
+    sources_XY = XYtoPixels(np.column_stack((coordinate_array[:,3], coordinate_array[:,4])))
+    print(sources_XY)
+    sys.exit
+    # Starting node positions for the TSV node-to-node file
+    source_position = 0
+    sink_position = len(sources_XY)
     
     # Uses grass to create a cost surface for that source based on the resistance map input
     grass.run_command('r.cost', input='resist_input', output='temp_cost', start_coordinates=coordinates, flags='', overwrite=True, max_cost=(mean_hunt_travel_h*2))# , memory=50, null_cost=100)
@@ -192,7 +195,6 @@ def isochronesToSinks(coordinate_array, multiple, multiple_number=0, file_path=n
             print str(source_node_counter)+"...",
             f.write("%d %d\n" %(s[1], s[0]))
             source_node_counter+=1
-    print('done.')
     print("Writing sink node(s)")
     for s in sources_XY:
         source_position += 1
@@ -220,7 +222,6 @@ def isochronesToSinks(coordinate_array, multiple, multiple_number=0, file_path=n
             with open((outpath_tsv+filename+'.tsv'), 'a') as f:
                 f.write('%d\t%d\n' %(source_position, sink_position))
         node_count+=1
-    print("...done.")
 
 def findNearest(array, value):
     """
@@ -244,14 +245,13 @@ def ensureDir(file_path):
     try:
         os.makedirs(file_path+"/NodesTSV")
         os.makedirs(file_path+"/NodesTXT")
-        print '......Creating node directories in %s.' %(file_path)
         exist=False
     except OSError as exception:
         print '......Node directories exist. /NodesTXT and /NodesTSV already present in %s' %(file_path)
         exist=True
         if exception.errno != errno.EEXIST:
             raise
-    if exist==True:
+    if exist==True and not overwrite_nodes:
         print "\n\n\n\n!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
         print "! Files present in node folders - this can cause this process to fail in GFlow !"
         print "!            Should the files be deleted now?                                  !"
@@ -290,7 +290,6 @@ def XYtoPixels(xy_array, convert=True):
             # Modify Y
             y_grid=math.ceil((ymax-coordinate[1])/pixelsize+0.0000001)
             pixel_array.append([int(x_grid), int(y_grid)])
-    
     else:
         for coordinate in xy_array:
             pixel_array.append([int(coordinate[0]), int(coordinate[1])])
@@ -314,8 +313,8 @@ def RasterConvert(raster=None, output_name=None):
     if ns_res_m==ew_res_m:
         m_res=ns_res_m
         next
-    elif round(ns_res_m,2)==round(ew_res_m, 2):
-        print("Resolution (m) of the NS/EW directions within .01 decimal places. RasterConvert() will average them.")
+    elif round(ns_res_m,2)==round(ew_res_m, 2) or average_res:
+#        print("Resolution (m) of the NS/EW directions within .01 decimal places. RasterConvert() will average them.")
         m_res=(ns_res_m+ew_res_m)/2
     else:
         print("\n\n\n\n!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n!              Resolution (m) of the NS/EW directions NOT within 0.01 decimal places:        !\n!     NS resolution (m): %s   |   EW resolution (m): %s                   !" %(ns_res_m, ew_res_m))

@@ -66,7 +66,7 @@ echo Multiplier,nNodes,nIterations,InputFilename,OutputIntermediate > $info_text
 loop=0
 # for file in $(ls ../Nodes/NodesTXT/*.txt | tail -q | head -1); do
 for file in $(ls ./SourceSinks/17.Jul.2019_Nodes/NodesTXT/nodes_105.*.txt)[1]; do
-	# Extract the population density for that set of points, setf as multiplier
+	# Extract the population density for that set of points, set as multiplier
 	mult_int=$(echo $file | grep -o -E '[0-9]+' | sed -n '3p')
 	mult_dec=$(echo $file | grep -o -E '[0-9]+' | sed -n '4p')
 	count=$(echo $file | grep -o -E '[0-9]+' | sed -n '5p')
