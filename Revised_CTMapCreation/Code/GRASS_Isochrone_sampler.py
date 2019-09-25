@@ -403,7 +403,7 @@ def main():
     
     shppath = os.path.join('/home/mairin/Documents/GradSchool/Research/CircuitTheory_Borneo/distanceToPopulation/')
     shpfile = os.path.join(shppath,'Revision2_PopulationSources','sab_swk_merged_gazetteervillages_clipped.shp')
-    
+    # For the sake of 
     srcpath = os.path.join('/home/mairin/Documents/GradSchool/Research/CircuitTheory_Borneo/PRSB_Revision2/Revised_CTMap/SourceSinks/')
     srcfile = os.path.join(srcpath,'asuds00ag.tif')
     

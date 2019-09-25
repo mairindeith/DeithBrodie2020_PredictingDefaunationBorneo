@@ -3,8 +3,8 @@
 #     for the Malaysian states of Borneo
 #
 # This script uses maps created with 'MSYBorneo_ResistanceMapLayers_Preparation.py'
-# Created by Mairin Deith on Nov12 2017
-# Last edited for revised mapping effort on Jul4 2019
+# Created by Mairin Deith on Nov12 2016
+# Last edited for revised mapping effort on Sep10 2019
 #------------------------
 # Hierarcy of resistance values:
 #   Walking speed - modified by land cover type (incl. plantations) and slope

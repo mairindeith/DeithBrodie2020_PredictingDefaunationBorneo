@@ -1,0 +1,1 @@
+java -jar tabula-1.0.2-jar-with-dependencies.jar -t --area %10,0,85,100 --columns 245,320,435 --pages 16-100 ~/Documents/GradSchool/Research/CircuitTheory_Borneo/distanceToPopulation/Revision2_PopulationSources/Sarawak_Gazetteer.pdf -o ~/Documents/GradSchool/Research/CircuitTheory_Borneo/distanceToPopulation/Revision2_PopulationSources/Sarawak_Gazetteer_tabula_allpages.csv
