@@ -49,7 +49,7 @@ def list_singles(seq):
 basedir = os.path.abspath('/home/mairin/Documents/GradSchool/Research/CircuitTheory_Borneo/PRSB_Revision2/Revised_CTMapCreation/')
 basefname = 'ClusterOutput_Summation'
 
-walk_types = ['VillageSabahOther'] #, 'AllNodes'] #Other', 'VillageSabah', 'AllNodes']
+walk_types = ['VillageSabahOther', 'AllNodes','VillageSabah'] #, 'AllNodes'] #Other', 'VillageSabah', 'AllNodes']
 
 for w in walk_types:
     src_dir = os.path.join(basedir, 'SourceSinks_WalkingOnly_'+w, 'NodesTSV')
