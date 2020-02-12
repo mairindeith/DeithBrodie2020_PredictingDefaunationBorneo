@@ -1,17 +1,17 @@
-# What this code needs to do:
-
-# 1. Iterate through GFlow output files
-#   2. Use the name of the file to find the associated file in:
-#       ../../SourceSinks/17.Jul.2019_Nodes/
-#   3. Move the .asc file to the < Processed > folder 
-
-# .asc file structure: 
-#       output_temp_{iter}_{population size}
-#   If there are multiple source files, I don't know which was _0/_1/_2, etc.
-#       Solution: add up all .asc files, source counts, iteration counts and
-#           Use this as the divisor. 
-
 #!/usr/bin/env python
+# -----------------------
+# Supplementary Material for Deith and Brodie 2020; “Predicting defaunation – accurately mapping bushmeat hunting pressure over large areas”
+#    doi: 10.1098/rspb.2019-2677
+#------------------------
+# Code to iterate through GFLOW results files, modify the outputs based on
+#     human population density, and then sum this into a final cumulative
+#     accessibility map.
+#
+# This script uses maps created with 'MSYBorneo_ResistanceMapLayers_Preparation.py'
+#   and GFLOW.
+# Created by Mairin Deith on Nov12 2017
+# Last edited on Nov15 2019
+#------------------------
 
 # Import libraries
 import os, sys
@@ -27,30 +27,30 @@ from collections import defaultdict
 
 ### HELPER FUNCTIONS
 # From https://stackoverflow.com/questions/5419204/index-of-duplicates-items-in-a-python-list
-# This function passes through a list and keeps a list of locations seen for each item, 
+# This function passes through a list and keeps a list of locations seen for each item,
 #   and returns items seen more than once
 
 def list_duplicates(seq):
     tally = defaultdict(list)
     for i,item in enumerate(seq):
         tally[item].append(i)
-    return ((key,locs) for key,locs in tally.items() 
+    return ((key,locs) for key,locs in tally.items()
                             if len(locs)>1)
 
 def list_singles(seq):
     tally = defaultdict(list)
     for i,item in enumerate(seq):
         tally[item].append(i)
-    return ((key,locs) for key,locs in tally.items() 
+    return ((key,locs) for key,locs in tally.items()
                             if len(locs)==1)
 
 ### GLOBAL INFO
 # File paths/gdalcalc paths
 
-basedir = os.path.abspath('/home/mairin/Documents/GradSchool/Research/CircuitTheory_Borneo/PRSB_Revision2/Revised_CTMapCreation/')
+basedir = os.path.abspath('/home/mairin/Documents/GradSchool/Research/CircuitTheory_Borneo/Revised_CTMapCreation/')
 basefname = 'ClusterOutput_Summation'
 
-walk_types = ['AllNodes','VillageSabah','VillageSabahOther'] #, 'AllNodes'] #Other', 'VillageSabah', 'AllNodes']
+walk_types = ['AllNodes','VillageSabah','VillageSabahOther'] # types of nodes to identify from gazetteers
 
 for w in walk_types:
     if w == 'AllNodes':
@@ -136,7 +136,7 @@ for w in walk_types:
                 tmp_meta = ds.profile
         ### BEGIN CALCULATIONS
         print("Calculating single-source file maps...")
-        save_counter = 0 # save every 5 steps 
+        save_counter = 0 # save every 5 steps
         singles_counter = 0
         total = len(single_src)
         for s in single_src:
@@ -157,7 +157,6 @@ for w in walk_types:
             tmp[tmp == -9999] = 0
             intmap = intmap + ((tmp * nsource * pmtmp) / ntmp)
             Path(os.path.join(asc_dir, "Processed", os.path.basename(asc_tmp[0]))).touch()
-            ### os.rename(asc_tmp, os.path.join(out_dir, "Processed", os.path.basename(asc_tmp)))
             save_counter += 1
             if save_counter == 10:
                 with rio.open(cum_outmap, 'w', **tmp_meta) as ds:
@@ -181,14 +180,13 @@ for w in walk_types:
                 src_f = glob.glob(src_dir+"/*%s*" %(str(ptmp)+"_"))[f]
                 with open(src_f) as file:
                     head = [next(file) for x in range(1)]
-                nsource = int(re.split("\t", head[0])[1].replace("\n", ""))-1    
+                nsource = int(re.split("\t", head[0])[1].replace("\n", ""))-1
                 asc_tmp = os.path.join(asc_dir, asc_list[int(d[1][f])])
                 print("......Opening file: %s" %(os.path.basename(asc_tmp)))
                 with rio.open(asc_tmp, 'r') as ds:
                     tmp = ds.read()
                 tmp[tmp == -9999] = 0
                 intmap = intmap + ((tmp * nsource * pmtmp) / ntmp)
-                ### os.rename(asc_tmp, os.path.join(out_dir, "Processed",   os.path.basename(asc_tmp)))
                 Path(os.path.join(asc_dir, "Processed", os.path.basename(asc_tmp[0]))).touch()
                 save_counter += 1
             if save_counter >= 10:

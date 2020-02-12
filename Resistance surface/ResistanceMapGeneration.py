@@ -1,8 +1,14 @@
+#! /usr/bin/env python
+
+# -----------------------
+# Supplementary Material for Deith and Brodie 2020; “Predicting defaunation – accurately mapping bushmeat hunting pressure over large areas”
+#    doi: 10.1098/rspb.2019-2677
 #------------------------
 # Code to create a resistance surface from standardized files
 #     for the Malaysian states of Borneo
 #
 # This script uses maps created with 'MSYBorneo_ResistanceMapLayers_Preparation.py'
+# Input files should be standard resolution, extent, and projection.
 # Created by Mairin Deith on Nov12 2017
 # Last edited for revised mapping effort on Jul26 2019
 #------------------------
@@ -27,9 +33,9 @@ from datetime import datetime
 
 # Global parameters
 
-output_path = Path('/home/mairin/Documents/GradSchool/Research/CircuitTheory_Borneo/PRSB_Revision2/Revised_CTMapCreation/ResistanceMap')
+output_path = Path('/home/mairin/Documents/GradSchool/Research/CircuitTheory_Borneo/PRSB_Revision2/Revised_CTMap/ResistanceMap')
 input_path = output_path / 'ModifiedSpatialData'
-date = datetime.now().strftime('%d.%b.%Y') 
+date = datetime.now().strftime('%d.%b.%Y')
 
 # Input file locations
 
@@ -76,7 +82,7 @@ slope_arr = slope_arr/100
 
 tobler_modifier = np.where(np.isnan(slope_arr), 1.0, np.exp(-3.5*(slope_arr + 0.05)))
 
-# New speed on land sources from wonderful MAP project 
+# New speed on land sources from wonderful MAP project
 # https://www-nature-com.ezproxy.library.ubc.ca/articles/nature25181
 # A global map of travel time to cities to assess inequalities in accessibility in 2015, Weiss et al. 2018
 
@@ -100,6 +106,8 @@ speed_arr[fc_arr == 4] = 5.0 * tobler_modifier[fc_arr == 4]
 
 del fc_arr
 del slope_arr
+del tobler_modifier
+gc.collect()
 
 ### PLANTATIONS
 
@@ -110,10 +118,9 @@ if pl_arr.shape != tmp_shape:
     quit("Error! Could not create resistance map.\n Reason: pl_arr and does not match template dimensions.")
 
 # Try 10 kph
-speed_arr[pl_arr == 1] = 5.0 * tobler_modifier[pl_arr == 1]
+speed_arr[pl_arr == 1] = 10.0
 
 del pl_arr
-del tobler_modifier
 gc.collect()
 
 # RIVERS
@@ -127,12 +134,9 @@ if st_arr.shape != tmp_shape:
 # Strahler order: 1 and 2 - walking speed
 #                 3 and 4 - impassible - maybe this is too much...
 #                 5+      - 20 kph
-### Sept 9 Modification: By foot only, no rivers are walkable
-# speed_arr[st_arr == 4] = 10.0
-# speed_arr[st_arr == 5] = 20.0
-
-speed_arr[st_arr >= 4] = np.nan
-# speed_arr[st_arr == 4] = np.nan
+# Modification: intermediate rivers
+speed_arr[st_arr == 4] = 10.0
+speed_arr[st_arr == 5] = 20.0
 
 del st_arr
 gc.collect()
@@ -147,9 +151,8 @@ if rd_arr.shape != tmp_shape:
 
 # Roads: 1 - main roads
 #        2 - logging
-### Sep 9 Modification: walking only
-speed_arr[rd_arr == 1] = 5.0
-speed_arr[rd_arr == 2] = 5.0
+speed_arr[rd_arr == 1] = 60.0
+speed_arr[rd_arr == 2] = 20.0
 
 del rd_arr
 gc.collect()
@@ -158,12 +161,10 @@ gc.collect()
 
 # Save speed file
 
-with rio.open(str(output_path / str('Speed_kph_' + date + '_walkingOnly_impassableRivers_Above4.tif')), 'w', **tmp_meta) as ds:
+with rio.open(str(output_path / str('Speed_kph_' + date + '.tif')), 'w', **tmp_meta) as ds:
     ds.write(np.squeeze(speed_arr), 1) # squeeze removes the empty 1st dimension for writing
 
-# Save resistance (in hpk) 
+# Save resistance (in hpk)
 
-with rio.open(str(output_path / str('Resistance_hpk_' + date + '_walkingOnly_impassableRivers_Above4.tif')), 'w', **tmp_meta) as ds:
+with rio.open(str(output_path / str('Resistance_hpk_' + date + '.tif')), 'w', **tmp_meta) as ds:
     ds.write(np.squeeze(np.reciprocal(speed_arr)), 1) # squeeze removes the empty 1st dimension for writing
-
-

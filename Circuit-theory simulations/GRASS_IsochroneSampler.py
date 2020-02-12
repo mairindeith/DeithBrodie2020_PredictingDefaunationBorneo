@@ -1,5 +1,7 @@
 #!/usr/bin/env python
-
+# -----------------------
+# Supplementary Material for Deith and Brodie 2020; “Predicting defaunation – accurately mapping bushmeat hunting pressure over large areas”
+#    doi: 10.1098/rspb.2019-2677
 #------------------------
 # Python script to create isochrones and sample sink points from within these isochrones
 # This script should be run from within a GRASS session as it uses GRASS libraries
@@ -39,7 +41,7 @@ else:
     average_res = False
 
 # Global parameters
-date = datetime.now().strftime('%d.%b.%Y') 
+date = datetime.now().strftime('%d.%b.%Y')
 global node_count
 global node_total
 # Resistance file should be resistance (measured in hours/pixel)
@@ -78,7 +80,7 @@ def samplePopDensity(srcfile, shpfile, targetfile, pbuff = 5):
         shpfile - filepath (as string) to population density shapefile (as multipoints)
         targetfile - filepath (as string) with resolution/transformation equal to the resistance surface
         pbuff - buffer size in # of pixels, defaults 5 pixels (equal to ~5km with this script's srcfile resolution)
-        
+
     Outputs a 5-column numpy array:
         0: Population density summed within buffer
         1: X-position of point according to the targetfile's resolution/transformation
@@ -86,34 +88,34 @@ def samplePopDensity(srcfile, shpfile, targetfile, pbuff = 5):
         Col 3: Lon-coordinate (georeferenced)
         Col 4: Lat-coordinate (georeferenced)
     """
-    src_ds=gdal.Open(srcfile) 
+    src_ds=gdal.Open(srcfile)
     gt=src_ds.GetGeoTransform()
     rb=src_ds.GetRasterBand(1)
-    
-    tar_ds=gdal.Open(targetfile) 
+
+    tar_ds=gdal.Open(targetfile)
     tt=tar_ds.GetGeoTransform()
-    
+
     ds=ogr.Open(shpfile)
     lyr=ds.GetLayer()
-    
+
     # Initialize arrays for buffered pop density and coordinate location in XY
     buf_popdensities = np.empty([len(lyr),1])
     idx = 0
-    
-    # Not needed 
+
+    # Not needed
     buf_popcoordinates = np.empty([len(lyr), 2])
-    
+
     # First column = x
     # Second column = y
     buf_popxy = np.empty([len(lyr), 2])
-    
+
     for feat in lyr:
         geom = feat.GetGeometryRef()
         point = geom.GetGeometryRef(0)
-            
+
         mx, my = point.GetX(), point.GetY()  #coord in map units
         buf_popcoordinates[idx,0], buf_popcoordinates[idx,1] = mx, my
-        
+
         #Convert from map to pixel coordinates.
         #Only works for geotransforms with no rotation.
         tx = int((mx - tt[0]) / tt[1]) #x pixel (target)
@@ -126,14 +128,14 @@ def samplePopDensity(srcfile, shpfile, targetfile, pbuff = 5):
         bufferval[bufferval < 0] = np.nan
         buf_popdensities[idx] = np.nansum(bufferval)
         idx += 1
-    
+
     # Remove any 0 population density points
     # Also remove any values not within the target extent
-    
+
     popdens = np.delete(buf_popdensities, np.where((buf_popdensities <= 0) | (buf_popxy < 0)), axis = 0)
     popcoords = np.delete(buf_popcoordinates, np.where((buf_popdensities <= 0) | (buf_popxy < 0)), axis = 0)
     popxy = np.delete(buf_popxy, np.where((buf_popdensities <= 0) | (buf_popxy < 0)), axis = 0)
-    
+
     pop_xyz = np.column_stack((popdens, popxy[:,0], popxy[:,1], popcoords[:,0], popcoords[:,1]))
     return pop_xyz
 
@@ -144,7 +146,7 @@ def isochronesToSinks(coordinate_array, multiple, multiple_number=0, file_path=n
         multiple - Boolean indicating whether the source ID is a duplicate (useful when converting an entire population density grid rather than discrete points)
         multiple_number - how many files have already been created for this     population density?
         file_path - where to save output files that contain source-sink pairs
-        
+
     No output, writes files in two new folders, NodesTSV and NodesTXT:
         Nodes .txt files: contains XY positions of each source/sink point to be used by GFlow (format: "Xposition Yposition")
         Nodes .tsv files: contains source-->sink identifiers (format: "sourceID \tab\ sinkID", where ID is the line of the .txt file that contains the source/sink point). Note: this file identifies source and sink locations based on their position in the .txt file: the first point listed in the .txt file is identified as point 1 in the .tsv file
@@ -155,7 +157,7 @@ def isochronesToSinks(coordinate_array, multiple, multiple_number=0, file_path=n
     outpath_tsv=file_path+"/NodesTSV/"
     outpath_txt=file_path+"/NodesTXT/"
     source_id = float(np.unique(coordinate_array[:,0]))
-    
+
     coordinates = []
     for c in coordinate_array:
         coordinates.append(float(c[3]))
@@ -167,7 +169,7 @@ def isochronesToSinks(coordinate_array, multiple, multiple_number=0, file_path=n
     # Starting node positions for the TSV node-to-node file
     source_position = 0
     sink_position = len(sources_XY)
-    
+
     # Uses grass to create a cost surface for that source based on the resistance map input
     grass.run_command('r.cost', input='resist_input', output='temp_cost', start_coordinates=coordinates, flags='', overwrite=True, max_cost=(mean_hunt_travel_h*2))# , memory=50, null_cost=100)
     cost_surface=grass.read_command('r.out.xyz', input='temp_cost')
@@ -186,7 +188,7 @@ def isochronesToSinks(coordinate_array, multiple, multiple_number=0, file_path=n
     source_node_counter=1
     try:
         os.remove(outpath_txt+filename+'.txt')
-        os.remove(outpath_txt+filename+'.tsv') 
+        os.remove(outpath_txt+filename+'.tsv')
         print("\n Removed exising files:", str(outpath_txt+filename))
     except Exception:
         pass
@@ -298,7 +300,7 @@ def XYtoPixels(xy_array, convert=True):
 def RasterConvert(raster=None, output_name=None):
     """
     Helper function to convert h/km rasters in decimal degrees into h/pixel
-    Inputs: 
+    Inputs:
         raster - GRASS' name for the map to be converted from h/km into h/pixel
         output_name - GRASS name for the map to be created
     """
@@ -309,7 +311,7 @@ def RasterConvert(raster=None, output_name=None):
     # Resolution in meters
     m_resolution=np.array([[str(j) for j in i.split('=')] for i in region_info.splitlines()])
     ns_res_m=float(m_resolution[6][1])
-    ew_res_m=float(m_resolution[7][1])  
+    ew_res_m=float(m_resolution[7][1])
     if ns_res_m==ew_res_m:
         m_res=ns_res_m
         next
@@ -389,44 +391,44 @@ def main():
     print("...Reading in resist/source file inputs...")
     print("...Setting GRASS region to resistance map projection...")
     grass.run_command('r.in.gdal', input=resist_infile, output='resist_input_o', flags='e', overwrite=True)
-    
+
     ### REPLACE
     # grass.run_command('r.in.gdal', input=sources_infile, output='source_input', flags='oe', overwrite=True)
-    
+
     # Convert from kph to hours per pixel
     RasterConvert('resist_input_o','resist_input')
-    
+
     # Focus the region of the GRASS session and apply a mask
-    
+
     grass.run_command('g.region', rast='resist_input')
     grass.run_command('r.mask', rast='resist_input', overwrite = True)
-    
+
     shppath = os.path.join('/home/mairin/Documents/GradSchool/Research/CircuitTheory_Borneo/distanceToPopulation/')
     shpfile = os.path.join(shppath,'Revision2_PopulationSources','sab_swk_merged_gazetteervillages_clipped.shp')
-    # For the sake of 
+    # For the sake of
     srcpath = os.path.join('/home/mairin/Documents/GradSchool/Research/CircuitTheory_Borneo/PRSB_Revision2/Revised_CTMap/SourceSinks/')
     srcfile = os.path.join(srcpath,'asuds00ag.tif')
-    
+
     sources = samplePopDensity(srcfile, shpfile, targetfile = str(resist_infile))
-    
+
     global node_total
     node_total = len(sources)
     global node_count
     node_count = 1
     o_sources = None
-    
+
     # Unique densities:
     u_densities = np.unique(sources[:,0])
-    
+
     try:
         len(u_densities)
     except(TypeError):
         u_densities = [u_densities]
-    
+
     print("\n" + str(len(u_densities)) + " unique population densities")
     u_count_start = 0
     u_count_current = 0
-    
+
     if start_density:
         if end_density:
             include = np.where((u_densities >= start_density) & (u_densities <= end_density))
@@ -434,7 +436,7 @@ def main():
             include = np.where((u_densities >= start_density))
         # print(include[0])
         # print(u_count_start)
-        
+
         # u_count_start, u_count_current = int(include[0][0]), int(include[0])
         u_count_start = len(np.where((sources[:,0] < start_density))[0])
         u_densities = u_densities[include]
@@ -442,7 +444,7 @@ def main():
         # return
         u_count_current = u_count_start
         # print(u_count_start)
-        
+
     # For each unique population density value, create a set of coordinates
     #   for all points that have that density and make files
 

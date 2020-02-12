@@ -1,5 +1,12 @@
 #!/bin/bash -x
 
+# -----------------------
+# Supplementary Material for Deith and Brodie 2020; “Predicting defaunation – accurately mapping bushmeat hunting pressure over large areas”
+#    doi: 10.1098/rspb.2019-2677
+#
+# Code modified from Leonard et al's 2017 GFLOW: software for modelling circuit theory‐based connectivity at any scale. (doi: 10.1111/2041-210X.12689)
+# -----------------------
+#
 # Gflow must be compiled locally before executing this script. Dependencies for GFlow include: openmpi, hypre, and petsc.
 # If you would like to execute a random shuffle of all pairwise, please install 'coreutils'as well.
 
@@ -83,8 +90,6 @@ for file in $(ls ../Nodes/NodesTXT/*.txt); do
 		-output_sum_density_filename "../GFlowOutputs/05_03_2018/Temp/output_temp_{iter}.asc" \
 		-converge_at 3N \
 		-shuffle_node_pairs 1 \
-		#	-output_density_filename "out_density_{time}.asc.gz" \
-		#	-converge_at 4N \
 
 		: "walltime: $SECONDS seconds"
 
@@ -99,47 +104,8 @@ for file in $(ls ../Nodes/NodesTXT/*.txt); do
 	log_percent=$(echo 'l('${multiplier}')/l(10)*-0.4536+1.0765' | bc -l)
 	decimal_percent=$(echo 'e('$log_percent'*l(10))/100' | bc -l)
 	adjusted_multiplier=$(echo $decimal_percent'*'$multiplier | bc -l)
-	# This modifies the GFLOW output based on population density and the relationship between
-	#    density and expected hunting effort, described above 
-	gdal_calc.py -A ../GFlowOutputs/05_03_2018/Temp/$output_file_full -B ../GFlowOutputs/05_03_2018/$final_output --outfile=../GFlowOutputs/05_03_2018/Temp/intermediate_cumulative.asc --calc="(A*$adjusted_multiplier*($sources_count/1)/$n_iterations)+B" --overwrite --NoDataValue=-9999 && mv ../GFlowOutputs/05_03_2018/Temp/$output_file_full ../GFlowOutputs/05_03_2018/IntermediateMaps/${output_file}_${multiplier}.asc && cp ../GFlowOutputs/05_03_2018/Temp/intermediate_cumulative.asc ../GFlowOutputs/05_03_2018/$final_output && mv ../Nodes/NodesTSV/$filename.tsv ../Nodes/NodesTSV/Processed/$filename.tsv && mv ../Nodes/NodesTXT/$filename.txt ../Nodes/NodesTXT/Processed/$filename.txt # && rm ../GFlowOutputs/05_03_2018/Temp/${output_file}_${multiplier}.asc
-	# else
-	#	gdal_calc.py -A ../GFlowOutputs/17_02_2018/Temp/$output_file_full --outfile=../GFlowOutputs/17_02_2018/Temp/intermediate_cumulative.asc --calc="(A*$adjusted_multiplier*($sources_count/1)/$n_iterations)" --overwrite --NoDataValue=-9999 && mv ../GFlowOutputs/17_02_2018/Temp/$output_file_full ../GFlowOutputs/17_02_2018/IntermediateMaps/${output_file}_${multiplier}.asc && cp ../GFlowOutputs/17_02_2018/Temp/intermediate_cumulative.asc ../GFlowOutputs/17_02_2018/$final_output # && mv ../Nodes/NodesTSV/$filename.tsv ./Nodes/NodesTSV/Processed/$filename.tsv && mv ./Nodes/NodesTXT/ParallelA/$filename.txt ./Nodes/NodesTXT/ParallelA/Processed/$filename.txt # && rm ../GFlowOutputs/17_02_2018/Temp/IntermediateMaps/${output_file}_${multiplier}.asc
-	#fi
+
+	gdal_calc.py -A ../GFlowOutputs/05_03_2018/Temp/$output_file_full -B ../GFlowOutputs/05_03_2018/$final_output --outfile=../GFlowOutputs/05_03_2018/Temp/intermediate_cumulative.asc --calc="(A*$adjusted_multiplier*($sources_count/1)/$n_iterations)+B" --overwrite --NoDataValue=-9999 && mv ../GFlowOutputs/05_03_2018/Temp/$output_file_full ../GFlowOutputs/05_03_2018/IntermediateMaps/${output_file}_${multiplier}.asc && cp ../GFlowOutputs/05_03_2018/Temp/intermediate_cumulative.asc ../GFlowOutputs/05_03_2018/$final_output && mv ../Nodes/NodesTSV/$filename.tsv ../Nodes/NodesTSV/Processed/$filename.tsv && mv ../Nodes/NodesTXT/$filename.txt ../Nodes/NodesTXT/Processed/$filename.txt
 	let "loop++"
 done
 echo Count: $loop
-#mpiexec -n 4 /home/mairin/deithvader/Documents/UBC/MScThesis/GFlow-0.1.6-alpha/gflow.x \
-#	-habitat ../MidHighRes/resistance_map_out_midhigh.asc \
-#	-nodes ../MidHighRes/Grids/ground_grid_scatter_2.txt \
-#	-effective_resistance ./R_eff.csv \
-#	-output_sum_density_filename "./{time}_local_sum_{iter}_300000.asc" \
-#	-converge_at 6N \
-#	-node_pairs ../MidHighRes/Grids/nodes_3.tsv \
-#	-output_density_filename "out_density_{time}.asc.gz" \
-#	-shuffle_node_pairs 1 \
-#	-converge_at 4N \
-#: "walltime: $SECONDS seconds"
-
-#mpiexec -n 4 /home/mairin/deithvader/Documents/UBC/MScThesis/GFlow-0.1.6-alpha/gflow.x \
-#	-habitat ../MidHighRes/resistance_map_out_midhigh.asc \
-#	-nodes ../MidHighRes/Grids/ground_grid_scatter_2.txt \
-#	-effective_resistance ./R_eff.csv \
-#	-output_sum_density_filename "./{time}_local_sum_{iter}_1800.asc" \
-#	-converge_at 6N \
-#	-node_pairs ../MidHighRes/Grids/nodes_18.tsv \
-#	-output_density_filename "out_density_{time}.asc.gz" \
-#	-shuffle_node_pairs 1 \
-#	-converge_at 4N \
-#: "walltime: $SECONDS seconds"
-
-#mpiexec -n 4 /home/mairin/deithvader/Documents/UBC/MScThesis/GFlow-0.1.6-alpha/gflow.x \
-#	-habitat ../MidHighRes/resistance_map_out_midhigh.asc \
-#	-nodes ../MidHighRes/Grids/ground_grid_scatter_2.txt \
-#	-effective_resistance ./R_eff.csv \
-#	-output_sum_density_filename "./{time}_local_sum_{iter}_700000.asc" \
-#	-converge_at 4N \
-#	-node_pairs ../MidHighRes/Grids/nodes_7.tsv \
-#	-output_density_filename "out_density_{time}.asc.gz" \
-#	-shuffle_node_pairs 1 \
-#	-converge_at 4N \
-#: "walltime: $SECONDS seconds"
