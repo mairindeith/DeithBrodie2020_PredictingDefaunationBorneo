@@ -1,6 +1,8 @@
 # How to use this repo
 
-This repo contains all code from Deith and Brodie, 2020 - "Predicting defaunation – accurately mapping bushmeat hunting pressure over large areas". 
+This repo contains all code from Deith and Brodie, 2020 - "Predicting defaunation – accurately mapping bushmeat hunting pressure over large areas". The code was used to create the following map of Malaysian Borneo's accessibility to wild meat hunters:
+
+![Figure 1: Circuit-theoretic accessibility map of Malaysian Borneo](Borneo_CircuitTheoreticAccessibility.png)
 
 Script files are organized into folders based on their function. 
 
