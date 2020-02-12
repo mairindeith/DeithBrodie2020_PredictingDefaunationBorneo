@@ -1,4 +1,4 @@
-# Repository information
+# How to use this repo
 
 This repo contains all code from Deith and Brodie, 2020 - "Predicting defaunation – accurately mapping bushmeat hunting pressure over large areas". 
 
