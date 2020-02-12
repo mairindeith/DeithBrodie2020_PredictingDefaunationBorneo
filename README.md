@@ -1,4 +1,4 @@
-# Respository `DeithBrodie2020_PredictingDefaunationBorneo`
+# Repository information
 
 This repo contains all code from Deith and Brodie, 2020 - "Predicting defaunation – accurately mapping bushmeat hunting pressure over large areas". 
 
@@ -18,4 +18,4 @@ Script files are organized into folders based on their function.
     - [functions.R]() - helper functions that are used later in the 
     - [load.R]() - load the raw data for covariates in the N-mixture models
     - [clean.R]() - cleans input data and prepares it in the correct format for N-mixture model fitting 
-    - [modelfitting.R]()
+    - [modelfitting.R]() - given a list of covariates, automatically creates formulae for N-mixture model and fits these models (designed to run on a cluster). 
